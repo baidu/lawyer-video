@@ -1,0 +1,45 @@
+name: check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  skills:
+    name: check_skills (Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { python: "3.8", os: ubuntu-22.04 }
+          - { python: "3.12", os: ubuntu-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python3 tools/check_skills.py
+
+  pr-rules:
+    name: commit messages and changelog
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commit messages follow the convention
+        run: python3 tools/check_commit_msg.py --range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+      - name: CHANGELOG.md is updated when a skill changes
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-changelog') }}
+        run: |
+          changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          if echo "$changed" | grep -q '^skills/' && ! echo "$changed" | grep -qx 'CHANGELOG.md'; then
+            echo "::error::skills/ changed but CHANGELOG.md did not. Add an entry, or apply the 'no-changelog' label for changes users will not notice."
+            exit 1
+          fi
